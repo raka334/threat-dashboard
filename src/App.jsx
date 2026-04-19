@@ -6,8 +6,8 @@ import { format } from 'date-fns'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import './App.css'
-import { calculateThreatScore, getSeverityColor, validateCoordinates } from './utils/scoring'
-import { locationSuggestions, descriptionSuggestions, categories } from './data/suggestions'
+import { calculateThreatScore, validateCoordinates } from './utils/scoring'
+import { descriptionSuggestions, categories } from './data/suggestions'
 import { useNominatimSearch } from './hooks/useNominatimSearch'
 import { usePincodeSearch } from './hooks/usePincodeSearch'
 
@@ -50,7 +50,81 @@ function MapClickHandler({ onMapClick }) {
 }
 
 function App() {
-  const [threats, setThreats] = useState([])
+  const [theme, setTheme] = useState('dark')
+  const [isAppLoading, setIsAppLoading] = useState(true)
+  const [progress, setProgress] = useState(0)
+  
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+  }, [theme])
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setProgress(prev => {
+        if (prev >= 100) {
+          clearInterval(interval)
+          setTimeout(() => setIsAppLoading(false), 800) // Delay to let animation finish
+          return 100
+        }
+        return prev + Math.floor(Math.random() * 5) + 1
+      })
+    }, 50)
+    return () => clearInterval(interval)
+  }, [])
+
+  const toggleTheme = () => {
+    setTheme(prev => prev === 'dark' ? 'light' : 'dark')
+  }
+
+  const [threats, setThreats] = useState(() => {
+    const saved = localStorage.getItem('threats')
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved)
+        return parsed.map(t => ({ ...t, time: new Date(t.time) }))
+      } catch (e) {
+        console.error('Failed to parse saved threats', e)
+      }
+    }
+    // Default initial data if none saved
+    return [
+      {
+        id: 1,
+        threat: 'Cyber Intrusion Detected',
+        category: 'Cyber',
+        locationName: 'Bangalore Data Center',
+        pincode: '560001',
+        latitude: '12.9716',
+        longitude: '77.5946',
+        locationSensitivity: 'Critical',
+        severity: 'High',
+        frequency: 'Repeated',
+        confidence: 'High',
+        priorityScore: 18,
+        time: new Date(Date.now() - 3600000)
+      },
+      {
+        id: 2,
+        threat: 'Unauthorized Border Crossing',
+        category: 'Infantry Movement',
+        locationName: 'Northern Sector',
+        pincode: '190001',
+        latitude: '34.0837',
+        longitude: '74.7973',
+        locationSensitivity: 'Critical',
+        severity: 'Medium',
+        frequency: 'Single',
+        confidence: 'Medium',
+        priorityScore: 12,
+        time: new Date(Date.now() - 7200000)
+      }
+    ]
+  })
+
+  useEffect(() => {
+    localStorage.setItem('threats', JSON.stringify(threats))
+  }, [threats])
+
   const [formData, setFormData] = useState({
     category: THREAT_CATEGORIES[0],
     description: '',
@@ -63,8 +137,8 @@ function App() {
     frequency: 'Single',
     confidence: 'Low'
   })
-  const [mapCenter, setMapCenter] = useState([20.5937, 78.9629])
-  const [mapZoom, setMapZoom] = useState(5)
+  const [mapCenter] = useState([20.5937, 78.9629])
+  const [mapZoom] = useState(5)
   const [mapLayer, setMapLayer] = useState('osm')
   const [tempMarker, setTempMarker] = useState(null)
   const [showSuggestions, setShowSuggestions] = useState(false)
@@ -94,6 +168,7 @@ function App() {
       const lat = parseFloat(formData.latitude)
       const lng = parseFloat(formData.longitude)
       if (!isNaN(lat) && !isNaN(lng)) {
+        // eslint-disable-next-line
         setNearbyPlacesLoading(true)
         fetch(
           `https://nominatim.openstreetmap.org/search?format=json&lat=${lat}&lon=${lng}&radius=5000&limit=8&countrycodes=in`,
@@ -196,7 +271,12 @@ function App() {
   const sortedThreats = [...threats].sort((a, b) => b.priorityScore - a.priorityScore)
   const topThreat = sortedThreats[0]
   const criticalThreats = threats.filter(t => t.locationSensitivity === 'Critical')
-  const highRiskThreats = threats.filter(t => t.priorityScore >= 15 && t.locationSensitivity === 'Critical')
+  
+  const getSeverityStyle = (severity) => {
+    if (severity === 'High') return 'var(--danger-color)'
+    if (severity === 'Medium') return 'var(--warning-color)'
+    return 'var(--success-color)'
+  }
 
   const timeSeriesData = () => {
     const counts = {}
@@ -216,10 +296,37 @@ function App() {
   }
 
   return (
-    <div className="app">
-      <header className="header">
-        <h1>Threat Prioritization System</h1>
-        <h4>Defence Decision Support Dashboard</h4>
+    <div className={`app ${isAppLoading ? 'app-loading' : 'app-ready'}`}>
+      {isAppLoading && (
+        <div className="loading-overlay">
+          <div className="loading-content">
+            <div className="loading-text-container">
+              <span className="loading-title">DEFENSE SYSTEM</span>
+              <span className="loading-subtitle">INITIALIZING SHIELD PROTOCOLS</span>
+            </div>
+            <div className="loading-progress-container">
+              <div className="loading-progress-bar" style={{ width: `${progress}%` }}></div>
+              <span className="loading-percentage">{progress}%</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <header className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ flex: 1 }}></div>
+        <div style={{ textAlign: 'center' }}>
+          <h1>Threat Prioritization System</h1>
+          <h4>Defence Decision Support Dashboard</h4>
+        </div>
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
+          <button className="theme-toggle-btn" onClick={toggleTheme} aria-label="Toggle Theme">
+             {theme === 'dark' ? (
+                <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" strokeWidth="2" fill="none"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
+             ) : (
+                <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" strokeWidth="2" fill="none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
+             )}
+          </button>
+        </div>
       </header>
 
       <div className="main-content">
@@ -489,7 +596,7 @@ function App() {
             <MapContainer
               center={mapCenter}
               zoom={mapZoom}
-              style={{ height: '300px', width: '100%' }}
+              style={{ height: '300px', width: '100%', borderRadius: '12px' }}
               whenReady={(map) => {
                 map.target.setView(mapCenter, mapZoom)
               }}
@@ -577,8 +684,8 @@ function App() {
                         <tr key={t.id}>
                           <td>{t.threat}</td>
                           <td>{t.locationName}</td>
-                          <td style={{ color: getSeverityColor(t.severity) }}>{t.severity}</td>
-                          <td>{t.priorityScore}</td>
+                          <td style={{ color: getSeverityStyle(t.severity), fontWeight: '600' }}>{t.severity}</td>
+                          <td style={{ fontWeight: '600' }}>{t.priorityScore}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -614,7 +721,7 @@ function App() {
                     <XAxis dataKey="time" />
                     <YAxis />
                     <Tooltip />
-                    <Line type="monotone" dataKey="count" stroke="#e74c3c" strokeWidth={2} />
+                    <Line type="monotone" dataKey="count" stroke="var(--accent-color)" strokeWidth={2} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -628,7 +735,7 @@ function App() {
                       <XAxis dataKey="category" tick={{ fontSize: 10 }} />
                       <YAxis />
                       <Tooltip />
-                      <Bar dataKey="count" fill="#e74c3c" />
+                      <Bar dataKey="count" fill="var(--danger-color)" />
                     </BarChart>
                   </ResponsiveContainer>
                 ) : (
@@ -638,8 +745,8 @@ function App() {
 
               <div className="section">
                 <h3>Immediate Action Required</h3>
-                {highRiskThreats.length > 0 ? (
-                  highRiskThreats.map(t => (
+                {criticalThreats.filter(t => t.priorityScore >= 15).length > 0 ? (
+                  criticalThreats.filter(t => t.priorityScore >= 15).map(t => (
                     <div key={t.id} className="alert alert-error">
                       <strong>THREAT:</strong> {t.threat}<br />
                       <strong>LOCATION:</strong> {t.locationName}<br />
